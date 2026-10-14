@@ -312,6 +312,27 @@ await test('artists and pages are checked together in one run', async () => {
   await ctx.close();
 });
 
+await test('an uncovered country is information, not an error, when pages are being watched', async () => {
+  const { page, ctx } = await open({ blockApi: false });
+  await page.route('https://app.ticketmaster.com/discovery/v2/**', (r) => {
+    const url = r.request().url();
+    const body = url.includes('attractions.json') ? { _embedded: { attractions: [{ id: 'A1', name: 'Silvana Estrada' }] } } : { page: { totalPages: 0, totalElements: 0 } };
+    r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+  });
+  await page.fill('#country', 'CO');
+  await configure(page, { key: 'k', artists: 'Silvana Estrada' });
+  await check(page);
+  const out = await text(page, '#artists-out');
+  assert.match(out, /lists no events at all in CO/);
+  assert.match(out, /the pages you are watching below are checked separately/);
+  assert.equal(await page.locator('#artists-out .err').count(), 0, 'no red error while the pages are covering Colombia');
+
+  await configure(page, { key: 'k', artists: 'Silvana Estrada', pages: '' }); // artists only: now it IS a problem
+  await check(page);
+  assert.equal(await page.locator('#artists-out .err').count(), 1);
+  await ctx.close();
+});
+
 await test("the Colombia card's buttons: add Silvana's pages (idempotent) and copy the proxy code", async () => {
   const { page, ctx } = await open();
   await page.fill('#pages', TM);
