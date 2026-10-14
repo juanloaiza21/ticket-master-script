@@ -96,6 +96,10 @@ After changing any Rust code, rebuild the committed bundle in `docs/pkg` with
 - **Artist matching.** The name is resolved to a Ticketmaster artist ID first, preferring an
   exact (case-insensitive) match, and the match is printed so you can verify it. If there's no
   exact match it uses the closest result and lists the alternatives it skipped.
+- **Country coverage.** Ticketmaster's API doesn't cover every country. If you set a country and
+  the artist has no events there, the web page asks Ticketmaster how many events it lists in that
+  country overall and tells you whether it's "nothing announced yet" (you'll be alerted) or "no
+  data for this country" (alerts can't work through Ticketmaster).
 - **Artist not on Ticketmaster yet.** It keeps looking each check, and when a page appears
   its events are announced rather than treated as the quiet first-run baseline.
 - **Delivery failures are retried.** If a webhook/ntfy post fails, the state isn't updated, so

@@ -12,7 +12,7 @@ const PAGE_PORT = 8801, API_PORT = 8802;
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
 
 // ---- mock Ticketmaster (a *different origin* from the page, so CORS is really exercised) ----
-const api = { mode: 'ok', attractions: null, events: [], log: [] };
+const api = { mode: 'ok', attractions: null, events: [], log: [], countryTotals: {} };
 const ATTR = { _embedded: { attractions: [{ id: 'ATTR1', name: 'Silvana Estrada' }, { id: 'ATTR2', name: 'Silvana Estrada Tribute' }] } };
 const ev = (id, status = 'offsale', extra = {}) => ({
   id, name: `Show ${id}`, url: `https://tm.example/${id}`,
@@ -20,7 +20,7 @@ const ev = (id, status = 'offsale', extra = {}) => ({
   _embedded: { venues: [{ name: 'Auditorio', city: { name: 'CDMX' }, country: { countryCode: 'MX' } }] },
   ...extra,
 });
-const resetApi = () => Object.assign(api, { mode: 'ok', attractions: ATTR, events: [], log: [] });
+const resetApi = () => Object.assign(api, { mode: 'ok', attractions: ATTR, events: [], log: [], countryTotals: {} });
 
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -29,6 +29,11 @@ http.createServer((req, res) => {
   if (api.mode === '401') { res.statusCode = 401; return res.end('{"fault":{"faultstring":"Invalid ApiKey"}}'); }
   res.setHeader('Content-Type', 'application/json');
   if (u.pathname.endsWith('attractions.json')) return res.end(JSON.stringify(api.attractions));
+  if (u.pathname.endsWith('events.json') && !u.searchParams.has('attractionId')) {
+    // country-wide coverage probe: no artist filter, only the total matters
+    const n = api.countryTotals[u.searchParams.get('countryCode')] ?? 0;
+    return res.end(JSON.stringify({ page: { size: 1, totalElements: n, totalPages: n } }));
+  }
   if (u.pathname.endsWith('events.json')) {
     const body = api.events.length
       ? { _embedded: { events: api.events }, page: { totalPages: 1 } } : { page: { totalPages: 0 } };
@@ -75,7 +80,8 @@ const clickCheck = async (page) => {
   await waitChecked(page);
 };
 const text = (page, sel) => page.locator(sel).innerText();
-const eventsCalls = () => api.log.filter((r) => r.path.endsWith('events.json'));
+const eventsCalls = () => api.log.filter((r) => r.path.endsWith('events.json') && r.q.attractionId);
+const coverageCalls = () => api.log.filter((r) => r.path.endsWith('events.json') && !r.q.attractionId);
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -229,6 +235,51 @@ await test('invalid country is rejected by the Rust validator before any request
   await page.click('#check');
   await page.waitForFunction(() => /2-letter/.test(document.getElementById('status').textContent));
   assert.equal(api.log.length, 0);
+  await ctx.close();
+});
+
+await test('country with no Ticketmaster data is called out, and probed only once', async () => {
+  const { page, ctx } = await newPage();
+  api.countryTotals = { CO: 0 };
+  await fill(page, { country: 'co' });
+  await clickCheck(page);
+  const err = await text(page, '.err');
+  assert.match(err, /lists no events at all in CO/);
+  assert.match(err, /probably doesn't cover that country/);
+  await clickCheck(page);
+  assert.equal(coverageCalls().length, 1, 'coverage is cached per country');
+  assert.equal(coverageCalls()[0].q.countryCode, 'CO');
+  await ctx.close();
+});
+
+await test('covered country with no events for the artist says so (and alerts will come)', async () => {
+  const { page, ctx } = await newPage();
+  api.countryTotals = { CO: 1234 };
+  await fill(page, { country: 'CO' });
+  await clickCheck(page);
+  const note = await text(page, '#artists-out');
+  assert.match(note, /Ticketmaster does cover CO \(1,234 upcoming events overall\)/);
+  assert.match(note, /nothing listed there yet/);
+  assert.equal(await page.locator('.err').count(), 0);
+
+  // The first event appearing must still alert, not vanish into a baseline.
+  api.events = [ev('A', 'onsale')];
+  await clickCheck(page);
+  assert.match(await text(page, '#alerts'), /NEW EVENT\s*Show A/);
+  await ctx.close();
+});
+
+await test('no coverage request when the artist has events or no country is set', async () => {
+  const { page, ctx } = await newPage();
+  api.events = [ev('A', 'onsale')];
+  await fill(page, { country: 'MX' });
+  await clickCheck(page);
+  assert.equal(coverageCalls().length, 0);
+
+  api.events = [];
+  await fill(page, { country: '' });
+  await clickCheck(page);
+  assert.equal(coverageCalls().length, 0);
   await ctx.close();
 });
 

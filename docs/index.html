@@ -190,6 +190,7 @@ async function api(path, query, key) {
 // ---- state --------------------------------------------------------------------------------
 let stateJson = store.get(STATE_KEY) || '';
 const resolved = new Map(); // artist query -> {id, name, exact, others}, so we look each one up once
+const coverage = new Map(); // country -> upcoming events Ticketmaster lists there overall (null = couldn't tell)
 let watching = false;
 let generation = 0; // bumped on each start so a stale loop (stop, then start mid-check) can't double up
 let timer = null;
@@ -278,6 +279,23 @@ function notify(artistName, alerts) {
 }
 
 // ---- one check ----------------------------------------------------------------------------
+// How many upcoming events does Ticketmaster list in this country at all? Lets us tell "this artist
+// has nothing announced yet" apart from "the API has no data for this country", which need very
+// different fixes. Cached per country so it costs one request per page load.
+async function countryTotal(country, key) {
+  if (coverage.has(country)) return coverage.get(country);
+  let total = null;
+  try {
+    const body = await api('events.json', { countryCode: country, size: '1', locale: '*' }, key);
+    const n = JSON.parse(body)?.page?.totalElements;
+    total = Number.isFinite(n) ? n : null;
+  } catch (e) {
+    if (e instanceof AuthError) throw e; // anything else just means "couldn't tell"
+  }
+  coverage.set(country, total);
+  return total;
+}
+
 async function checkArtist(artist, s) {
   let picked = resolved.get(artist);
   if (!picked) {
@@ -321,6 +339,16 @@ async function checkArtist(artist, s) {
   }
   if (res.outcome === 'baseline') {
     head.push(h('p', { class: 'note' }, 'First check: this is what is listed now. You will be alerted to anything new from here on.'));
+  }
+  if (s.country && events.length === 0) {
+    const total = await countryTotal(s.country, s.key);
+    if (total === 0) {
+      head.push(h('p', { class: 'err' }, `Ticketmaster's API lists no events at all in ${s.country}, so it probably doesn't cover that country. `
+        + `Alerts for ${s.country} can't work through Ticketmaster. Clear the country field to search worldwide.`));
+    } else if (total > 0) {
+      head.push(h('p', { class: 'note' }, `Ticketmaster does cover ${s.country} (${total.toLocaleString()} upcoming events overall). `
+        + `This artist just has nothing listed there yet, and you'll be alerted when something appears.`));
+    }
   }
   renderArtist(artist, [...head, eventsTable(events, fresh)]);
 
@@ -396,9 +424,9 @@ $('notify').onchange = async () => {
   }
   saveSettings();
 };
-$('reset').onclick = () => { stateJson = ''; store.del(STATE_KEY); resolved.clear(); setStatus('Cleared. The next check starts a fresh baseline.'); };
+$('reset').onclick = () => { stateJson = ''; store.del(STATE_KEY); resolved.clear(); coverage.clear(); setStatus('Cleared. The next check starts a fresh baseline.'); };
 $('wipe').onclick = () => {
-  stopWatching(); stateJson = ''; resolved.clear();
+  stopWatching(); stateJson = ''; resolved.clear(); coverage.clear();
   store.del(STATE_KEY); store.del(SETTINGS_KEY);
   loadSettings(); $('artists-out').replaceChildren(); $('alerts').replaceChildren(); $('alerts-card').hidden = true;
   setStatus('Saved key and data cleared.');
