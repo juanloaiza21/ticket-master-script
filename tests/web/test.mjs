@@ -308,6 +308,18 @@ await test('the page shows when it was last updated', async () => {
   await ctx.close();
 });
 
+await test('the Colombia card links to a real, installable userscript', async () => {
+  const { page, ctx } = await newPage();
+  const href = await page.getAttribute('#install-userscript', 'href');
+  assert.match(href, /\.user\.js$/, 'Tampermonkey only offers to install URLs ending in .user.js');
+  const src = await page.evaluate(async (h) => (await fetch(new URL(h, location.href))).text(), href);
+  assert.match(src, /^\/\/ ==UserScript==/, 'metadata block must be first');
+  assert.match(src, /@match\s+https:\/\/www\.ticketmaster\.co\/event\/\*/);
+  assert.match(src, /@match\s+https:\/\/latiquetera\.com\/\*/);
+  assert.equal(await page.locator('#colombia a[target="_blank"]:not([rel*="noopener"])').count(), 0, 'external links use noopener');
+  await ctx.close();
+});
+
 await browser.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

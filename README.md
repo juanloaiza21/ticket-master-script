@@ -91,6 +91,26 @@ CLI for round-the-clock alerts. It also relies on Ticketmaster allowing calls fr
 After changing any Rust code, rebuild the committed bundle in `docs/pkg` with
 `scripts/build-web.sh` (setup steps are at the top of that script).
 
+## Colombia (and anything else the API doesn't cover)
+
+Ticketmaster's Discovery API has no Colombian events (`countryCode=CO` returns `totalElements: 0`), even though
+ticketmaster.co and La Tiquetera sell them. For those, use the **page watcher**, a userscript that runs in your
+own browser on the event page itself:
+
+1. Install [Tampermonkey](https://www.tampermonkey.net/).
+2. Open `docs/ticketwatch-page.user.js` from your published site (the page has an install link) and click **Install**.
+3. Open the event page, click the blue **watch?** button (bottom right) and **Watch this page**. Leave the tab open.
+
+It reloads the page every 1-10 minutes (never faster than 60s, with jitter), compares the visible text with the
+previous copy, and alerts on a desktop notification, the tab title and optionally an [ntfy](https://ntfy.sh) phone push.
+It labels what changed: `NO LONGER SOLD OUT`, `TICKETS AVAILABLE?`, `NEW DATE?`, `PRESALE`, `PRICES`, `SOLD OUT`.
+Queue and verification pages, and nearly empty pages, are skipped rather than reported as changes.
+
+It was tested against stand-in pages, not the live sites. If it alerts too much or too little, press
+**Captured text** in the panel to see exactly what it reads, then narrow it with `CONTENT_SELECTOR` or `IGNORE`
+at the top of the script. Chrome's "Memory Saver" can discard an inactive tab and stop the watch; exempt the site in
+Chrome's settings.
+
 ## How it behaves
 
 - **Artist matching.** The name is resolved to a Ticketmaster artist ID first, preferring an
@@ -112,7 +132,7 @@ After changing any Rust code, rebuild the committed bundle in `docs/pkg` with
 ```sh
 cargo test --features web      # unit tests + end-to-end tests against a local mock of the API
 scripts/build-web.sh           # rebuild docs/pkg after Rust changes
-cd tests/web && npm install && CHROMIUM_PATH=/path/to/chrome npm test   # browser tests for the page
+cd tests/web && npm install && CHROMIUM_PATH=/path/to/chrome npm test   # browser tests: the page and the userscript
 ```
 
 The Rust end-to-end tests run the real binary against a mock Ticketmaster server and webhook, and

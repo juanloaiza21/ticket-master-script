@@ -62,6 +62,7 @@
   .alert ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); }
   tr.fresh td { background: var(--warn-bg); }
   .empty { color: var(--muted); }
+  ol { margin: 8px 0 8px 20px; padding: 0; } li { margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -112,6 +113,23 @@
   </section>
 
   <div id="artists-out"></div>
+
+  <section class="card" id="colombia">
+    <h2>Colombia (and sites the API doesn't cover)</h2>
+    <p>Ticketmaster's API has no Colombian events, but the Colombian sites do. This userscript watches those pages
+      from inside your own browser: it reloads the event page and alerts you when something changes, such as
+      <em>Agotado</em> disappearing, a buy button, a new date, prices or a presale.</p>
+    <ol>
+      <li>Install <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome, Edge or Firefox).</li>
+      <li><a id="install-userscript" href="./ticketwatch-page.user.js">Install the ticketwatch page watcher</a>, then click <b>Install</b> in Tampermonkey.</li>
+      <li>Open an event page, click the blue <b>watch?</b> button at the bottom right, press <b>Watch this page</b>, and leave the tab open.</li>
+    </ol>
+    <p class="hint">Pages to watch:
+      <a href="https://www.ticketmaster.co/event/silvana-estrada" target="_blank" rel="noopener noreferrer">Ticketmaster Colombia</a>,
+      <a href="https://www.ticketmaster.co/event/silvana-estrada-preventa-claro" target="_blank" rel="noopener noreferrer">Bogotá presale page</a>,
+      <a href="https://latiquetera.com/site/comfama/events/view/vendran-suaves-lluvias---silvana-estrada" target="_blank" rel="noopener noreferrer">Medellín on La Tiquetera</a>.
+      Press <b>Captured text</b> in the panel to check it is reading the event info.</p>
+  </section>
 
   <section class="card">
     <div class="row" style="margin-top:0">
