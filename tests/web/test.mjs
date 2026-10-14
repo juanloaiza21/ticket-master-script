@@ -12,7 +12,7 @@ const PAGE_PORT = 8801, API_PORT = 8802;
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
 
 // ---- mock Ticketmaster (a *different origin* from the page, so CORS is really exercised) ----
-const api = { mode: 'ok', attractions: null, events: [], log: [], countryTotals: {} };
+const api = { mode: 'ok', attractions: null, events: [], log: [], countryTotals: {}, coverageStatus: 200 };
 const ATTR = { _embedded: { attractions: [{ id: 'ATTR1', name: 'Silvana Estrada' }, { id: 'ATTR2', name: 'Silvana Estrada Tribute' }] } };
 const ev = (id, status = 'offsale', extra = {}) => ({
   id, name: `Show ${id}`, url: `https://tm.example/${id}`,
@@ -20,7 +20,7 @@ const ev = (id, status = 'offsale', extra = {}) => ({
   _embedded: { venues: [{ name: 'Auditorio', city: { name: 'CDMX' }, country: { countryCode: 'MX' } }] },
   ...extra,
 });
-const resetApi = () => Object.assign(api, { mode: 'ok', attractions: ATTR, events: [], log: [], countryTotals: {} });
+const resetApi = () => Object.assign(api, { mode: 'ok', attractions: ATTR, events: [], log: [], countryTotals: {}, coverageStatus: 200 });
 
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -31,6 +31,7 @@ http.createServer((req, res) => {
   if (u.pathname.endsWith('attractions.json')) return res.end(JSON.stringify(api.attractions));
   if (u.pathname.endsWith('events.json') && !u.searchParams.has('attractionId')) {
     // country-wide coverage probe: no artist filter, only the total matters
+    if (api.coverageStatus !== 200) { res.statusCode = api.coverageStatus; return res.end('{"errors":[{"detail":"nope"}]}'); }
     const n = api.countryTotals[u.searchParams.get('countryCode')] ?? 0;
     return res.end(JSON.stringify({ page: { size: 1, totalElements: n, totalPages: n } }));
   }
@@ -280,6 +281,30 @@ await test('no coverage request when the artist has events or no country is set'
   await fill(page, { country: '' });
   await clickCheck(page);
   assert.equal(coverageCalls().length, 0);
+  await ctx.close();
+});
+
+await test('a failed coverage check says so, the table still renders, and it is retried next time', async () => {
+  const { page, ctx } = await newPage();
+  api.coverageStatus = 400;
+  await fill(page, { country: 'CO' });
+  await clickCheck(page);
+  const card = await text(page, '#artists-out');
+  assert.match(card, /Couldn't check whether Ticketmaster covers CO: .*HTTP 400/);
+  assert.match(card, /No events listed right now/);
+  assert.equal(await page.locator('.err').count(), 0, 'a failed probe is not evidence of no coverage');
+
+  api.coverageStatus = 200;
+  api.countryTotals = { CO: 5 };
+  await clickCheck(page);
+  assert.match(await text(page, '#artists-out'), /does cover CO \(5 upcoming events overall\)/);
+  assert.equal(coverageCalls().length, 2, 'the failure was not cached');
+  await ctx.close();
+});
+
+await test('the page shows when it was last updated', async () => {
+  const { page, ctx } = await newPage();
+  assert.match(await text(page, '#version'), /Page last updated: .+hard-refresh/);
   await ctx.close();
 });
 

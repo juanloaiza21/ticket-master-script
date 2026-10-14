@@ -119,6 +119,7 @@
       <button id="wipe">Clear saved key &amp; data</button>
     </div>
     <p class="hint">"Forget what I've seen" makes the next check a fresh baseline. The first check for an artist never alerts, it just records what's listed.</p>
+    <p class="hint" id="version"></p>
   </section>
 </main>
 
@@ -283,17 +284,17 @@ function notify(artistName, alerts) {
 // has nothing announced yet" apart from "the API has no data for this country", which need very
 // different fixes. Cached per country so it costs one request per page load.
 async function countryTotal(country, key) {
-  if (coverage.has(country)) return coverage.get(country);
-  let total = null;
+  if (coverage.has(country)) return { total: coverage.get(country) };
   try {
     const body = await api('events.json', { countryCode: country, size: '1', locale: '*' }, key);
     const n = JSON.parse(body)?.page?.totalElements;
-    total = Number.isFinite(n) ? n : null;
+    if (!Number.isFinite(n)) return { error: "Ticketmaster's reply had no event count" };
+    coverage.set(country, n); // only successes are cached, so a hiccup is retried on the next check
+    return { total: n };
   } catch (e) {
-    if (e instanceof AuthError) throw e; // anything else just means "couldn't tell"
+    if (e instanceof AuthError) throw e;
+    return { error: String(e.message || e) };
   }
-  coverage.set(country, total);
-  return total;
 }
 
 async function checkArtist(artist, s) {
@@ -341,11 +342,13 @@ async function checkArtist(artist, s) {
     head.push(h('p', { class: 'note' }, 'First check: this is what is listed now. You will be alerted to anything new from here on.'));
   }
   if (s.country && events.length === 0) {
-    const total = await countryTotal(s.country, s.key);
-    if (total === 0) {
+    const { total, error } = await countryTotal(s.country, s.key);
+    if (error) {
+      head.push(h('p', { class: 'note' }, `Couldn't check whether Ticketmaster covers ${s.country}: ${error}`));
+    } else if (total === 0) {
       head.push(h('p', { class: 'err' }, `Ticketmaster's API lists no events at all in ${s.country}, so it probably doesn't cover that country. `
         + `Alerts for ${s.country} can't work through Ticketmaster. Clear the country field to search worldwide.`));
-    } else if (total > 0) {
+    } else {
       head.push(h('p', { class: 'note' }, `Ticketmaster does cover ${s.country} (${total.toLocaleString()} upcoming events overall). `
         + `This artist just has nothing listed there yet, and you'll be alerted when something appears.`));
     }
@@ -432,6 +435,7 @@ $('wipe').onclick = () => {
   setStatus('Saved key and data cleared.');
 };
 window.addEventListener('focus', () => { unseen = 0; document.title = 'ticketwatch'; });
+$('version').textContent = `Page last updated: ${document.lastModified}. If this looks old, hard-refresh (Ctrl+Shift+R).`;
 document.documentElement.dataset.ready = '1';
 </script>
 </body>
