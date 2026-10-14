@@ -139,6 +139,12 @@
       <li>Copy the <code>…workers.dev</code> address into <b>Page fetch proxy</b> above.</li>
       <li><button id="use-colombia" type="button">Use Silvana's Colombian pages</button>, then press <b>Check now</b>.</li>
     </ol>
+    <details id="worker-details">
+      <summary>Show the proxy code (to copy by hand)</summary>
+      <textarea id="worker-code" readonly rows="8" spellcheck="false" placeholder="Loading…"></textarea>
+      <p class="hint">In the Cloudflare editor click inside the code, press <b>Ctrl+A</b> and <b>Delete</b> so nothing is left, then paste.
+        Two copies of the code in one file is the most common cause of errors.</p>
+    </details>
     <p class="hint">The proxy can only fetch ticketmaster.co and latiquetera.com, only for this site, and never sees your API key.
       Hosting this page somewhere other than <code>juanloaiza21.github.io</code>? Add a Worker variable <code>ALLOWED_ORIGINS</code>.
       If a page says it is blocked, or "very little text came back", that site isn't giving its content to a proxy: use the
@@ -640,13 +646,34 @@ $('use-colombia').onclick = () => {
   saveSettings();
   setStatus('Added the Colombian pages. Add your proxy address, then press Check now.');
 };
+// Fetch the proxy code, checking it really is code: a site that is still deploying answers with a
+// "404 not found" web page, and copying that into Cloudflare would produce a wall of errors.
+async function loadWorkerCode() {
+  const resp = await fetch('./fetch-proxy.mjs');
+  const code = await resp.text();
+  if (!resp.ok || !/export default/.test(code)) throw new Error('that is not the proxy code');
+  $('worker-code').value = code;
+  return code;
+}
+$('worker-details').ontoggle = async () => {
+  if ($('worker-details').open && !$('worker-code').value) {
+    try { await loadWorkerCode(); } catch { $('worker-code').placeholder = "Couldn't load the code. The site may still be deploying: wait a minute and hard-refresh (Ctrl+Shift+R)."; }
+  }
+};
 $('copy-worker').onclick = async () => {
+  let code;
   try {
-    const code = await (await fetch('./fetch-proxy.mjs')).text();
-    await navigator.clipboard.writeText(code);
-    setStatus('Proxy code copied. Paste it into the Cloudflare editor.');
+    code = await loadWorkerCode();
   } catch {
-    setStatus("Couldn't copy automatically. Open fetch-proxy.mjs (link in the card) and copy it by hand.");
+    setStatus("Couldn't load the proxy code from this site (the newest version may still be deploying). Nothing was copied: wait a minute, hard-refresh (Ctrl+Shift+R) and try again.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(code);
+    setStatus('Proxy code copied. In the Cloudflare editor press Ctrl+A, then paste, then Deploy.');
+  } catch {
+    $('worker-details').open = true;
+    setStatus('Could not copy automatically. Open "Show the proxy code" below, click in the box, press Ctrl+A and copy.');
   }
 };
 window.addEventListener('focus', () => { unseen = 0; document.title = 'ticketwatch'; });

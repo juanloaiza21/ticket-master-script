@@ -328,6 +328,35 @@ await test("the Colombia card's buttons: add Silvana's pages (idempotent) and co
   await ctx.close();
 });
 
+await test('the copy button never copies an error page as if it were the code', async () => {
+  const { page, ctx } = await open();
+  await page.evaluate(() => navigator.clipboard.writeText('SENTINEL'));
+  await page.route('**/fetch-proxy.mjs', (r) => r.fulfill({ status: 404, contentType: 'text/html', body: '<html><body>404 File not found</body></html>' }));
+  await page.click('#copy-worker');
+  await page.waitForFunction(() => /Nothing was copied/.test(document.getElementById('status').textContent));
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'SENTINEL', 'clipboard untouched');
+
+  // Even a 200 that is not the code (e.g. a captive page) must be rejected.
+  await page.unroute('**/fetch-proxy.mjs');
+  await page.route('**/fetch-proxy.mjs', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html>Sign in to Wi-Fi</html>' }));
+  await page.evaluate(() => { document.getElementById('status').textContent = ''; });
+  await page.click('#copy-worker');
+  await page.waitForFunction(() => /Nothing was copied/.test(document.getElementById('status').textContent));
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'SENTINEL');
+  await ctx.close();
+});
+
+await test('"Show the proxy code" fills a box with exactly the Worker file, for copying by hand', async () => {
+  const { page, ctx } = await open();
+  await page.click('#worker-details summary');
+  await page.waitForFunction(() => document.getElementById('worker-code').value.length > 100);
+  const shown = await page.inputValue('#worker-code');
+  assert.equal(shown, fs.readFileSync(fileURLToPath(new URL('../../worker/fetch-proxy.mjs', import.meta.url)), 'utf8'));
+  assert.match(shown, /export default/);
+  assert.equal((shown.match(/export default/g) || []).length, 1, 'exactly one handler, so pasting it once cannot duplicate it');
+  await ctx.close();
+});
+
 await browser.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
