@@ -38,6 +38,28 @@ pub fn unresolved_key(query: &str, country: Option<&str>) -> String {
 }
 
 impl State {
+    /// What we last knew about this artist, to diff fresh API data against. `None` means
+    /// first sight, which is a silent baseline. An artist that wasn't on Ticketmaster when we
+    /// first looked counts as known-with-nothing-listed, so its first events are announced.
+    pub fn previous(&self, key: &str, unresolved: &str) -> Option<Watch> {
+        match self.watches.get(key) {
+            Some(w) => Some(w.clone()),
+            None if self.unresolved.contains(unresolved) => Some(Watch::default()),
+            None => None,
+        }
+    }
+
+    /// Record that Ticketmaster has no page for this artist yet. True if newly recorded.
+    pub fn mark_unresolved(&mut self, unresolved: String) -> bool {
+        self.unresolved.insert(unresolved)
+    }
+
+    /// Store the outcome of a check. Call only once any alerts have been delivered.
+    pub fn commit(&mut self, key: String, unresolved: &str, watch: Watch) {
+        self.watches.insert(key, watch);
+        self.unresolved.remove(unresolved);
+    }
+
     pub fn load(path: &Path) -> Result<State> {
         match fs::read_to_string(path) {
             Ok(text) => serde_json::from_str(&text).with_context(|| {

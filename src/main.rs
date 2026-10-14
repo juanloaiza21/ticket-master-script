@@ -1,8 +1,3 @@
-mod api;
-mod notify;
-mod state;
-mod watch;
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -13,10 +8,11 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use reqwest::blocking::Client;
 
-use api::{Attraction, DEFAULT_BASE_URL, Discovery, pick_attraction};
-use notify::Notifier;
-use state::{State, Watch, unresolved_key, watch_key};
-use watch::{Outcome, evaluate, render_alert, render_event};
+use ticketwatch::api::{Attraction, normalize_country, pick_attraction};
+use ticketwatch::client::{AuthError, DEFAULT_BASE_URL, Discovery};
+use ticketwatch::notify::Notifier;
+use ticketwatch::state::{State, unresolved_key, watch_key};
+use ticketwatch::watch::{Outcome, evaluate, render_alert, render_event};
 
 /// Get alerted when Ticketmaster lists new events, opens presales/public sales, or changes
 /// the status of events for the artists you follow.
@@ -90,7 +86,7 @@ impl App {
         for artist in self.artists.clone() {
             match self.check(&artist) {
                 Ok(()) => {}
-                Err(e) if e.downcast_ref::<api::AuthError>().is_some() => return Err(e),
+                Err(e) if e.downcast_ref::<AuthError>().is_some() => return Err(e),
                 Err(e) => {
                     all_ok = false;
                     eprintln!(
@@ -162,15 +158,9 @@ impl App {
         let events = self.api.events_for(&attraction.id, country)?;
 
         let pending = unresolved_key(artist, country);
-        let was_unresolved = self.state.unresolved.contains(&pending);
-        let empty = Watch::default();
-        let prev = match self.state.watches.get(&key) {
-            Some(w) => Some(w),
-            None if was_unresolved => Some(&empty),
-            None => None,
-        };
+        let prev = self.state.previous(&key, &pending);
 
-        let (watch, outcome) = evaluate(prev, &attraction.name, events);
+        let (watch, outcome) = evaluate(prev.as_ref(), &attraction.name, events);
 
         match outcome {
             Outcome::Baseline => {
@@ -212,19 +202,8 @@ impl App {
             }
         }
 
-        self.state.watches.insert(key, watch);
-        self.state.unresolved.remove(&pending);
+        self.state.commit(key, &pending, watch);
         self.state.save(&self.state_file)
-    }
-}
-
-fn normalize_country(code: Option<&str>) -> Result<Option<String>> {
-    match code {
-        None => Ok(None),
-        Some(c) if c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) => {
-            Ok(Some(c.to_ascii_uppercase()))
-        }
-        Some(c) => bail!("--country must be a 2-letter country code like US or MX, got {c:?}"),
     }
 }
 

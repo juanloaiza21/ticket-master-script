@@ -1,35 +1,9 @@
-//! Minimal client for the Ticketmaster Discovery API v2.
+//! Ticketmaster Discovery API v2 data model and response parsing.
+//! No I/O here, so it also compiles to WebAssembly.
 //! Docs: https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/
 
-use std::fmt;
-
-use anyhow::{Context, Result, anyhow, bail};
-use reqwest::StatusCode;
-use reqwest::blocking::Client;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-
-pub const DEFAULT_BASE_URL: &str = "https://app.ticketmaster.com/discovery/v2";
-
-const PAGE_SIZE: u32 = 200;
-// The API refuses deep paging past size * page >= 1000.
-const MAX_PAGES: u32 = 5;
-
-/// The API key was rejected. Retrying will never help, so callers treat it as fatal.
-#[derive(Debug)]
-pub struct AuthError(pub StatusCode);
-
-impl fmt::Display for AuthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Ticketmaster rejected the API key (HTTP {}); check TICKETMASTER_API_KEY",
-            self.0.as_u16()
-        )
-    }
-}
-
-impl std::error::Error for AuthError {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Presale {
     pub name: String,
@@ -263,6 +237,17 @@ pub fn parse_attractions(body: &str) -> Result<Vec<Attraction>> {
         .unwrap_or_default())
 }
 
+/// Validate an optional 2-letter country code and upper-case it, as the API expects.
+pub fn normalize_country(code: Option<&str>) -> Result<Option<String>> {
+    match code.map(str::trim).filter(|c| !c.is_empty()) {
+        None => Ok(None),
+        Some(c) if c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) => {
+            Ok(Some(c.to_ascii_uppercase()))
+        }
+        Some(c) => anyhow::bail!("country must be a 2-letter code like US or MX, got {c:?}"),
+    }
+}
+
 /// Choose the attraction for a user-supplied artist name: an exact (case-insensitive)
 /// name match if there is one, otherwise the API's most relevant result.
 /// The bool says whether the match was exact.
@@ -276,93 +261,6 @@ pub fn pick_attraction<'a>(
         .find(|a| a.name.trim().eq_ignore_ascii_case(query))
         .map(|a| (a, true))
         .or_else(|| candidates.first().map(|a| (a, false)))
-}
-
-// ---- Client ----------------------------------------------------------------
-
-pub struct Discovery {
-    http: Client,
-    base_url: String,
-    api_key: String,
-}
-
-impl Discovery {
-    pub fn new(http: Client, base_url: &str, api_key: &str) -> Self {
-        Self {
-            http,
-            base_url: base_url.trim_end_matches('/').to_string(),
-            api_key: api_key.to_string(),
-        }
-    }
-
-    fn get(&self, path: &str, params: &[(&str, &str)]) -> Result<String> {
-        let url = format!("{}/{path}", self.base_url);
-        // reqwest errors embed the full URL, which includes the API key. Strip it.
-        let resp = self
-            .http
-            .get(&url)
-            .query(&[("apikey", self.api_key.as_str())])
-            .query(params)
-            .send()
-            .map_err(|e| {
-                anyhow::Error::new(e.without_url()).context(format!("GET {path} failed"))
-            })?;
-        let status = resp.status();
-        let body = resp.text().map_err(|e| {
-            anyhow::Error::new(e.without_url()).context(format!("reading {path} response"))
-        })?;
-
-        if status == StatusCode::UNAUTHORIZED {
-            return Err(AuthError(status).into());
-        }
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            bail!("Ticketmaster rate limit hit (HTTP 429); try a longer --interval");
-        }
-        if !status.is_success() {
-            let snippet: String = body.chars().take(200).collect();
-            bail!("GET {path} returned HTTP {}: {snippet}", status.as_u16());
-        }
-        Ok(body)
-    }
-
-    pub fn find_attractions(&self, keyword: &str) -> Result<Vec<Attraction>> {
-        let body = self.get(
-            "attractions.json",
-            &[("keyword", keyword), ("size", "10"), ("locale", "*")],
-        )?;
-        parse_attractions(&body)
-    }
-
-    pub fn events_for(&self, attraction_id: &str, country: Option<&str>) -> Result<Vec<Event>> {
-        let size = PAGE_SIZE.to_string();
-        let mut all: std::collections::BTreeMap<String, Event> = Default::default();
-
-        for page in 0..MAX_PAGES {
-            let page_s = page.to_string();
-            // locale=* matters: without it the API only returns events that have an
-            // English-locale record, which hides many events in Latin America and Spain.
-            let mut params = vec![
-                ("attractionId", attraction_id),
-                ("size", size.as_str()),
-                ("page", page_s.as_str()),
-                ("sort", "date,asc"),
-                ("locale", "*"),
-            ];
-            if let Some(c) = country {
-                params.push(("countryCode", c));
-            }
-            let body = self.get("events.json", &params)?;
-            let (events, total_pages) =
-                parse_events_page(&body).map_err(|e| anyhow!("{e:#} (page {page})"))?;
-            for e in events {
-                all.insert(e.id.clone(), e);
-            }
-            if page + 1 >= total_pages {
-                break;
-            }
-        }
-        Ok(all.into_values().collect())
-    }
 }
 
 #[cfg(test)]

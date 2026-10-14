@@ -71,6 +71,26 @@ or use cron with `--once`:
 The API allows 5000 requests/day. A check costs one request per artist (plus one lookup when
 the process starts), so the default 10-minute interval is far below the limit.
 
+## Try it in the browser
+
+`docs/` is a static web page that runs the same Rust logic compiled to WebAssembly. Paste your
+API key, enter an artist, hit **Check now** (or **Start watching** to re-check on an interval).
+Your key and what you've seen are stored in your browser only, and the key is only ever sent to
+Ticketmaster.
+
+**Publish it on GitHub Pages** (gives you `https://<user>.github.io/ticket-master-script/`):
+repo **Settings → Pages → Build and deployment → Deploy from a branch**, pick the branch you
+want (e.g. `main`) and the **`/docs`** folder. Pages on a private repo needs a paid GitHub plan.
+
+Or try it locally: `python3 -m http.server -d docs 8000`, then open <http://localhost:8000>.
+
+Compared with the command-line version, the page only watches while its tab is open, so use the
+CLI for round-the-clock alerts. It also relies on Ticketmaster allowing calls from a web page
+(CORS); if your browser or an extension blocks them, the page says so instead of failing silently.
+
+After changing any Rust code, rebuild the committed bundle in `docs/pkg` with
+`scripts/build-web.sh` (setup steps are at the top of that script).
+
 ## How it behaves
 
 - **Artist matching.** The name is resolved to a Ticketmaster artist ID first, preferring an
@@ -86,8 +106,11 @@ the process starts), so the default 10-minute interval is far below the limit.
 ## Development
 
 ```sh
-cargo test      # unit tests + end-to-end tests against a local mock of the API
+cargo test --features web      # unit tests + end-to-end tests against a local mock of the API
+scripts/build-web.sh           # rebuild docs/pkg after Rust changes
+cd tests/web && npm install && CHROMIUM_PATH=/path/to/chrome npm test   # browser tests for the page
 ```
 
-The end-to-end tests run the real binary against a mock Ticketmaster server and webhook, so
-they need no API key or network access.
+The Rust end-to-end tests run the real binary against a mock Ticketmaster server and webhook, and
+the browser tests drive the real page in Chromium against a mock API on a separate origin, so
+neither needs an API key or network access.

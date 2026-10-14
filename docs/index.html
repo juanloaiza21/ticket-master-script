@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ticketwatch</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #667085; --line: #e3e6eb;
+    --accent: #2457d6; --good: #14803c; --warn: #a15c07; --bad: #b42318;
+    --good-bg: #e6f4ea; --warn-bg: #fdf1dc; --bad-bg: #fde8e6; --gray-bg: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101319; --card: #181c24; --text: #e8eaee; --muted: #9aa3b2; --line: #2a303b;
+      --accent: #7aa2ff; --good: #5dd68a; --warn: #f0b45a; --bad: #ff8a80;
+      --good-bg: #16301f; --warn-bg: #33270f; --bad-bg: #3a1b18; --gray-bg: #232833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  a { color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+                  background: var(--bg); color: var(--text); font: inherit; }
+  .wide { grid-column: 1 / -1; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+           color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { button.primary { color: #101319; } }
+  button:disabled { opacity: .5; cursor: default; }
+  .check { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+  .check input { width: auto; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .status { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .artist-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .err { color: var(--bad); background: var(--bad-bg); padding: 8px 10px; border-radius: 8px; margin-top: 8px; }
+  .note { color: var(--muted); background: var(--gray-bg); padding: 8px 10px; border-radius: 8px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--gray-bg); }
+  .badge.onsale { background: var(--good-bg); color: var(--good); }
+  .badge.canceled, .badge.cancelled { background: var(--bad-bg); color: var(--bad); }
+  .badge.postponed, .badge.rescheduled { background: var(--warn-bg); color: var(--warn); }
+  .tag { font-weight: 600; font-size: 12px; padding: 1px 7px; border-radius: 6px; margin-right: 6px; }
+  .tag.new { background: var(--good-bg); color: var(--good); }
+  .tag.changed { background: var(--warn-bg); color: var(--warn); }
+  .alert { border-top: 1px solid var(--line); padding: 10px 0; }
+  .alert:first-child { border-top: 0; padding-top: 0; }
+  .alert .when { color: var(--muted); font-size: 12px; }
+  .alert ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); }
+  tr.fresh td { background: var(--warn-bg); }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>ticketwatch</h1>
+  <p class="sub">Find out when Ticketmaster lists new events, announces on-sale times, or changes an event's status for an artist.
+    Runs entirely in your browser; your key is only ever sent to Ticketmaster.</p>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <div class="grid">
+      <div class="wide">
+        <label for="apikey">Ticketmaster API key (Consumer Key)</label>
+        <input id="apikey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your key">
+        <p class="hint">Free at <a href="https://developer.ticketmaster.com" target="_blank" rel="noopener">developer.ticketmaster.com</a>.
+          Saved in this browser only.</p>
+      </div>
+      <div class="wide">
+        <label for="artists">Artist(s), comma-separated</label>
+        <input id="artists" type="text" placeholder="Silvana Estrada" spellcheck="false">
+      </div>
+      <div>
+        <label for="country">Country (optional, 2 letters)</label>
+        <input id="country" type="text" maxlength="2" placeholder="MX" spellcheck="false">
+      </div>
+      <div>
+        <label for="interval">Check every</label>
+        <select id="interval">
+          <option value="60">1 minute</option>
+          <option value="300">5 minutes</option>
+          <option value="600" selected>10 minutes</option>
+          <option value="1800">30 minutes</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <button id="check" class="primary">Check now</button>
+      <button id="toggle">Start watching</button>
+      <label class="check"><input id="notify" type="checkbox"> Desktop notifications</label>
+      <span id="status" class="status"></span>
+    </div>
+    <p class="hint">Watching only works while this tab stays open. For 24/7 alerts, run the command-line version.</p>
+  </section>
+
+  <section id="alerts-card" class="card" hidden>
+    <h2>Alerts</h2>
+    <div id="alerts"></div>
+  </section>
+
+  <div id="artists-out"></div>
+
+  <section class="card">
+    <div class="row" style="margin-top:0">
+      <button id="reset">Forget what I've seen</button>
+      <button id="wipe">Clear saved key &amp; data</button>
+    </div>
+    <p class="hint">"Forget what I've seen" makes the next check a fresh baseline. The first check for an artist never alerts, it just records what's listed.</p>
+  </section>
+</main>
+
+<script type="module">
+import init, * as tw from './pkg/ticketwatch.js';
+
+const STATE_KEY = 'ticketwatch.state.v1';
+const SETTINGS_KEY = 'ticketwatch.settings.v1';
+const MAX_PAGES = 5; // the API refuses deep paging beyond 1000 results
+
+// Tests can point the page at a local mock, but only from localhost: honouring ?base= everywhere
+// would let a crafted link send a visitor's saved key to someone else's server.
+const params = new URLSearchParams(location.search);
+const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+const BASE = (isLocal && params.get('base')) || 'https://app.ticketmaster.com/discovery/v2';
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode etc: just don't persist */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+};
+
+// Always build DOM with textContent so API-sourced strings can never inject markup.
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') el.className = v; else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+function safeLink(url, text) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' || u.protocol === 'http:') {
+      return h('a', { href: u.href, target: '_blank', rel: 'noopener noreferrer' }, text);
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+function fmtUtc(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+class AuthError extends Error {}
+
+async function api(path, query, key) {
+  const url = new URL(`${BASE}/${path}`);
+  url.search = new URLSearchParams({ apikey: key, ...query }).toString();
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch {
+    throw new Error("Couldn't reach Ticketmaster from the browser (offline, or the request was blocked, e.g. by CORS or a content blocker).");
+  }
+  if (resp.status === 401) throw new AuthError('Ticketmaster rejected the API key.');
+  if (resp.status === 429) throw new Error('Ticketmaster rate limit hit; try a longer interval.');
+  const body = await resp.text();
+  if (!resp.ok) throw new Error(`Ticketmaster returned HTTP ${resp.status}: ${body.slice(0, 200)}`);
+  return body;
+}
+
+// ---- state --------------------------------------------------------------------------------
+let stateJson = store.get(STATE_KEY) || '';
+const resolved = new Map(); // artist query -> {id, name, exact, others}, so we look each one up once
+let watching = false;
+let generation = 0; // bumped on each start so a stale loop (stop, then start mid-check) can't double up
+let timer = null;
+let busy = false;
+let unseen = 0;
+
+function settings() {
+  const artists = $('artists').value.split(',').map((s) => s.trim()).filter(Boolean);
+  return {
+    key: $('apikey').value.trim(),
+    artists,
+    country: $('country').value.trim(),
+    interval: Number($('interval').value),
+    notify: $('notify').checked,
+  };
+}
+
+function saveSettings() {
+  const s = settings();
+  store.set(SETTINGS_KEY, JSON.stringify({
+    apiKey: s.key, artists: $('artists').value, country: s.country, interval: s.interval, notify: s.notify,
+  }));
+}
+
+function loadSettings() {
+  let s = {};
+  try { s = JSON.parse(store.get(SETTINGS_KEY) || '{}'); } catch { /* ignore */ }
+  $('apikey').value = s.apiKey || '';
+  $('artists').value = s.artists || '';
+  $('country').value = s.country || '';
+  if (s.interval) $('interval').value = String(s.interval);
+  $('notify').checked = !!s.notify && 'Notification' in window && Notification.permission === 'granted';
+}
+
+function setStatus(msg) { $('status').textContent = msg; }
+
+// ---- rendering ----------------------------------------------------------------------------
+function placeText(e) {
+  return [e.venue, e.city, e.country].filter(Boolean).join(', ') || '—';
+}
+
+function eventsTable(events, freshIds) {
+  const sorted = [...events].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+  if (!sorted.length) return h('p', { class: 'empty' }, 'No events listed right now. You will be alerted when the first one appears.');
+  const rows = sorted.map((e) => {
+    const link = e.url && safeLink(e.url, e.name);
+    const sale = [];
+    if (e.public_sale_start) sale.push(h('div', {}, 'Public: ', fmtUtc(e.public_sale_start)));
+    for (const p of e.presales) sale.push(h('div', {}, `${p.name}: `, p.start ? fmtUtc(p.start) : 'TBA'));
+    return h('tr', { class: freshIds.has(e.id) ? 'fresh' : '' },
+      h('td', {}, e.date || 'TBA'),
+      h('td', {}, link || e.name, h('div', { class: 'meta' }, placeText(e))),
+      h('td', {}, h('span', { class: `badge ${/^[a-z]+$/.test(e.status) ? e.status : ''}` }, e.status)),
+      h('td', {}, sale.length ? sale : '—'));
+  });
+  return h('table', {},
+    h('thead', {}, h('tr', {}, ...['When', 'Event', 'Status', 'Tickets on sale'].map((t) => h('th', {}, t)))),
+    h('tbody', {}, rows));
+}
+
+function renderArtist(artist, view) {
+  const id = `artist-${[...artist].map((c) => c.charCodeAt(0).toString(16)).join('')}`;
+  let card = $(id);
+  if (!card) { card = h('section', { class: 'card', id }); $('artists-out').append(card); }
+  card.replaceChildren(...view);
+}
+
+function logAlerts(artistName, alerts) {
+  $('alerts-card').hidden = false;
+  const now = new Date().toLocaleTimeString();
+  const items = alerts.map((a) => h('div', { class: 'alert' },
+    h('div', {}, h('span', { class: `tag ${a.kind}` }, a.kind === 'new' ? 'NEW EVENT' : 'CHANGED'),
+      a.event.url ? (safeLink(a.event.url, a.event.name) || a.event.name) : a.event.name),
+    h('div', { class: 'meta' }, `${a.event.date || 'TBA'} · ${placeText(a.event)} · ${a.event.status}`),
+    a.changes.length ? h('ul', {}, a.changes.map((c) => h('li', {}, c))) : null,
+    h('div', { class: 'when' }, `${artistName} · ${now}`)));
+  $('alerts').prepend(...items);
+}
+
+function notify(artistName, alerts) {
+  unseen += alerts.length;
+  document.title = `(${unseen}) ticketwatch`;
+  if (!$('notify').checked || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const body = alerts.map((a) => `${a.kind === 'new' ? 'New' : 'Changed'}: ${a.event.name}`).join('\n');
+  try { new Notification(`${artistName}: ${alerts.length} update(s) on Ticketmaster`, { body }); } catch { /* unsupported */ }
+}
+
+// ---- one check ----------------------------------------------------------------------------
+async function checkArtist(artist, s) {
+  let picked = resolved.get(artist);
+  if (!picked) {
+    const body = await api('attractions.json', { keyword: artist, size: '10', locale: '*' }, s.key);
+    picked = JSON.parse(tw.pick_artist(artist, body));
+    if (!picked) {
+      // No Ticketmaster page yet. Remember that so its first events are announced, not baselined.
+      stateJson = tw.mark_unresolved(stateJson, artist, s.country);
+      store.set(STATE_KEY, stateJson);
+      renderArtist(artist, [
+        h('div', { class: 'artist-head' }, h('h2', {}, artist)),
+        h('p', { class: 'note' }, 'No Ticketmaster artist page yet. Still looking on every check.')]);
+      return;
+    }
+    resolved.set(artist, picked);
+  }
+
+  const byId = new Map();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const q = { attractionId: picked.id, size: '200', page: String(page), sort: 'date,asc', locale: '*' };
+    if (s.country) q.countryCode = s.country;
+    const parsed = JSON.parse(tw.parse_events(await api('events.json', q, s.key)));
+    for (const e of parsed.events) byId.set(e.id, e);
+    if (page + 1 >= parsed.total_pages) break;
+  }
+  const events = [...byId.values()];
+
+  const res = JSON.parse(tw.check(stateJson, artist, picked.id, picked.name, s.country, JSON.stringify(events)));
+  stateJson = JSON.stringify(res.state);
+  store.set(STATE_KEY, stateJson);
+
+  const fresh = new Set(res.alerts.map((a) => a.event.id));
+  const when = new Date().toLocaleTimeString();
+  const head = [
+    h('div', { class: 'artist-head' }, h('h2', {}, picked.name),
+      h('span', { class: 'meta' }, `${events.length} event(s) listed · checked ${when}`)),
+  ];
+  if (!picked.exact) {
+    const others = picked.others.length ? ` Other results: ${picked.others.join(', ')}.` : '';
+    head.push(h('p', { class: 'note' }, `No exact match for "${artist}", showing the closest result.${others}`));
+  }
+  if (res.outcome === 'baseline') {
+    head.push(h('p', { class: 'note' }, 'First check: this is what is listed now. You will be alerted to anything new from here on.'));
+  }
+  renderArtist(artist, [...head, eventsTable(events, fresh)]);
+
+  if (res.outcome === 'alerts') { logAlerts(picked.name, res.alerts); notify(picked.name, res.alerts); }
+}
+
+// Returns usable settings, or null after telling the user what is missing.
+function validate() {
+  const s = settings();
+  if (!s.key) { setStatus('Enter your API key first.'); return null; }
+  if (!s.artists.length) { setStatus('Enter at least one artist.'); return null; }
+  try { s.country = tw.normalize_country(s.country); } catch (e) { setStatus(String(e.message || e)); return null; }
+  return s;
+}
+
+async function runCheck() {
+  if (busy) return;
+  const s = validate();
+  if (!s) return;
+
+  busy = true;
+  $('check').disabled = true;
+  setStatus('Checking…');
+  let fatal = false;
+  let failed = 0;
+  for (const artist of s.artists) {
+    try {
+      await checkArtist(artist, s);
+    } catch (e) {
+      failed++;
+      if (e instanceof AuthError) fatal = true;
+      renderArtist(artist, [h('div', { class: 'artist-head' }, h('h2', {}, artist)),
+        h('p', { class: 'err' }, String(e.message || e))]);
+      if (fatal) break;
+    }
+  }
+  busy = false;
+  $('check').disabled = false;
+  setStatus(failed ? `Finished with ${failed} error(s) at ${new Date().toLocaleTimeString()}` : `Last check ${new Date().toLocaleTimeString()}`);
+  if (fatal) stopWatching();
+}
+
+async function loop(mine) {
+  await runCheck();
+  if (watching && mine === generation) timer = setTimeout(() => loop(mine), settings().interval * 1000);
+}
+
+function startWatching() {
+  if (!validate()) return;
+  saveSettings();
+  watching = true;
+  $('toggle').textContent = 'Stop watching';
+  loop(++generation);
+}
+
+function stopWatching() {
+  watching = false;
+  clearTimeout(timer);
+  timer = null;
+  $('toggle').textContent = 'Start watching';
+}
+
+// ---- wiring -------------------------------------------------------------------------------
+await init();
+loadSettings();
+
+$('check').onclick = () => { saveSettings(); runCheck(); };
+$('toggle').onclick = () => (watching ? stopWatching() : startWatching());
+$('notify').onchange = async () => {
+  if ($('notify').checked) {
+    const ok = 'Notification' in window && (await Notification.requestPermission()) === 'granted';
+    if (!ok) { $('notify').checked = false; setStatus('Notifications are blocked for this site in your browser.'); }
+  }
+  saveSettings();
+};
+$('reset').onclick = () => { stateJson = ''; store.del(STATE_KEY); resolved.clear(); setStatus('Cleared. The next check starts a fresh baseline.'); };
+$('wipe').onclick = () => {
+  stopWatching(); stateJson = ''; resolved.clear();
+  store.del(STATE_KEY); store.del(SETTINGS_KEY);
+  loadSettings(); $('artists-out').replaceChildren(); $('alerts').replaceChildren(); $('alerts-card').hidden = true;
+  setStatus('Saved key and data cleared.');
+};
+window.addEventListener('focus', () => { unseen = 0; document.title = 'ticketwatch'; });
+document.documentElement.dataset.ready = '1';
+</script>
+</body>
+</html>
