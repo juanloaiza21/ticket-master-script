@@ -2,6 +2,6 @@
   "name": "ticketwatch-web-tests",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node test.mjs && node userscript.mjs" },
+  "scripts": { "test": "sh ../../scripts/build-pages-assets.sh --check && node --test ../../worker/*.test.mjs && node test.mjs && node userscript.mjs && node pages.mjs" },
   "dependencies": { "playwright-core": "^1.55.0" }
 }

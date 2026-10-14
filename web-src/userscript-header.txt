@@ -1,0 +1,25 @@
+// ==UserScript==
+// @name         ticketwatch: page watcher (Ticketmaster Colombia / La Tiquetera)
+// @namespace    https://github.com/juanloaiza21/ticket-master-script
+// @version      0.1.0
+// @description  Reloads an event page on an interval and alerts you when its content changes: sold out -> available, new dates, prices, presales.
+// @match        https://www.ticketmaster.co/event/*
+// @match        https://ticketmaster.co/event/*
+// @match        https://latiquetera.com/*
+// @match        https://www.latiquetera.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_notification
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      ntfy.sh
+// @run-at       document-idle
+// ==/UserScript==
+
+// How it works: open an event page, click "Watch this page" in the little panel at the bottom
+// right, and leave the tab open. Every few minutes the page reloads, the visible text is compared
+// with the previous copy, and any difference raises an alert (desktop notification, tab title, and
+// optionally a phone push through https://ntfy.sh). Nothing leaves your browser except that push.
+//
+// If it alerts too much (rotating banners, "recommended events"...) or too little, press
+// "Captured text" in the panel to see exactly what it reads, then narrow it with CONTENT_SELECTOR
+// below (a CSS selector for the part of the page that holds the tickets), or add to IGNORE.

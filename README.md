@@ -94,22 +94,33 @@ After changing any Rust code, rebuild the committed bundle in `docs/pkg` with
 ## Colombia (and anything else the API doesn't cover)
 
 Ticketmaster's Discovery API has no Colombian events (`countryCode=CO` returns `totalElements: 0`), even though
-ticketmaster.co and La Tiquetera sell them. For those, use the **page watcher**, a userscript that runs in your
-own browser on the event page itself:
+ticketmaster.co and La Tiquetera sell them. For those, the web page can **watch pages** instead of artists.
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/).
-2. Open `docs/ticketwatch-page.user.js` from your published site (the page has an install link) and click **Install**.
-3. Open the event page, click the blue **watch?** button (bottom right) and **Watch this page**. Leave the tab open.
+A web page isn't allowed to read other sites (CORS), so it goes through a tiny **page proxy** that you deploy once,
+free, on Cloudflare Workers:
 
-It reloads the page every 1-10 minutes (never faster than 60s, with jitter), compares the visible text with the
-previous copy, and alerts on a desktop notification, the tab title and optionally an [ntfy](https://ntfy.sh) phone push.
-It labels what changed: `NO LONGER SOLD OUT`, `TICKETS AVAILABLE?`, `NEW DATE?`, `PRESALE`, `PRICES`, `SOLD OUT`.
-Queue and verification pages, and nearly empty pages, are skipped rather than reported as changes.
+1. Create a free Cloudflare account, then **Workers & Pages → Create → Hello World → Deploy → Edit code**.
+2. Paste [`worker/fetch-proxy.mjs`](worker/fetch-proxy.mjs) over the editor contents (the page's **Copy the proxy code** button does it) and **Deploy**.
+3. Paste the `…workers.dev` address into **Page fetch proxy** on the page, add the URLs under **Pages to watch**
+   (**Use Silvana's Colombian pages** fills them in), and press **Check now** or **Start watching**.
 
-It was tested against stand-in pages, not the live sites. If it alerts too much or too little, press
-**Captured text** in the panel to see exactly what it reads, then narrow it with `CONTENT_SELECTOR` or `IGNORE`
-at the top of the script. Chrome's "Memory Saver" can discard an inactive tab and stop the watch; exempt the site in
-Chrome's settings.
+Each page is read, reduced to its visible text (plus schema.org event data when present) and compared with the last
+copy. Changes are labelled `NO LONGER SOLD OUT`, `TICKETS AVAILABLE?`, `NEW DATE?`, `PRESALE`, `PRICES`, `SOLD OUT`.
+The first check is a baseline. Queue/verification pages, HTTP errors and nearly empty pages are skipped (and say
+so) instead of being reported as changes. **What was read** shows the captured text so you can check it is the
+event info.
+
+The proxy is deliberately narrow: it only fetches the hosts listed in `ALLOWED_HOSTS` (re-checked on every
+redirect), forwards no cookies, caps the response size, and only answers browsers on the origins in
+`ALLOWED_ORIGINS` (default `https://juanloaiza21.github.io`; hosting elsewhere? set a Worker variable
+`ALLOWED_ORIGINS`, comma-separated). It never sees your Ticketmaster API key.
+
+**Limits.** This was tested against stand-in sites, not the live ones. A site can refuse a proxy (HTTP 403, a
+queue or bot check), or build its page in the browser so a server-side copy has no event data; the page tells you
+which when it happens. For such pages use the **userscript** `docs/ticketwatch-page.user.js` instead: with
+[Tampermonkey](https://www.tampermonkey.net/) it runs inside your own browser on the event page, reloads it on an
+interval and uses the same comparison. It needs the tab open, and Chrome's "Memory Saver" can discard idle tabs
+(exempt the site in Chrome's settings).
 
 ## How it behaves
 
@@ -131,10 +142,14 @@ Chrome's settings.
 
 ```sh
 cargo test --features web      # unit tests + end-to-end tests against a local mock of the API
-scripts/build-web.sh           # rebuild docs/pkg after Rust changes
-cd tests/web && npm install && CHROMIUM_PATH=/path/to/chrome npm test   # browser tests: the page and the userscript
+scripts/build-web.sh           # rebuild docs/pkg (WebAssembly) after Rust changes
+scripts/build-pages-assets.sh  # rebuild docs/pagewatch-core.js, the userscript and docs/fetch-proxy.mjs
+                               #   from web-src/ and worker/ (add --check to fail if they are stale)
+cd tests/web && npm install && CHROMIUM_PATH=/path/to/chrome npm test
+                               # asset freshness, Worker tests, and browser tests for the page and userscript
 ```
 
-The Rust end-to-end tests run the real binary against a mock Ticketmaster server and webhook, and
-the browser tests drive the real page in Chromium against a mock API on a separate origin, so
-neither needs an API key or network access.
+Edit `web-src/` and `worker/`, never the generated copies in `docs/`. The Rust end-to-end tests run the real binary
+against a mock Ticketmaster server and webhook; the browser tests drive the real page in Chromium against mock
+servers (the page-watching tests run the real Worker code in front of a stand-in site), so none of it needs an API
+key or network access.

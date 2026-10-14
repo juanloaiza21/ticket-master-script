@@ -23,23 +23,14 @@
 // If it alerts too much (rotating banners, "recommended events"...) or too little, press
 // "Captured text" in the panel to see exactly what it reads, then narrow it with CONTENT_SELECTOR
 // below (a CSS selector for the part of the page that holds the tickets), or add to IGNORE.
-
 (function () {
   'use strict';
 
-  // ---- things you may want to edit --------------------------------------------------------
-  const CONTENT_SELECTOR = ''; // e.g. '#tickets' ; empty = the <main> element, else the whole page
-  const IGNORE = [/cookies?\b/i]; // lines matching any of these are never compared
-
-  // ---- internals ----------------------------------------------------------------------------
-  const CFG = Object.assign({
-    contentSelector: CONTENT_SELECTOR,
-    settleMs: 4000,      // wait until the page text has stopped changing for this long
-    maxSettleMs: 25000,  // ...but never longer than this (single-page apps render late)
-    minIntervalSec: 60,  // be polite: never reload more often than this
-    ntfyBase: 'https://ntfy.sh',
-    reload: () => location.reload(),
-  }, globalThis.__TW_CONFIG || {});
+// Page-comparison logic shared by the web page and the userscript. Pure functions only: callers
+// read the page (live DOM or fetched HTML) and hand over text. This file is a classic script
+// that defines `TW`, and the build also pastes it into the userscript.
+const TW = (() => {
+  'use strict';
 
   const SOLD = /agotad[oa]s?|sold\s*out|soldout|sin disponibilidad|no hay (boletas|entradas)/i;
   const AVAIL = /comprar|buy tickets|get tickets|a[gñ]adir al carrito|agregar al carrito|seleccionar (boletas|entradas)|elegir (boletas|entradas|ubicaci)|ver (boletas|entradas)|in ?stock|limitedavailability|preorder|onlineonly/i;
@@ -48,52 +39,22 @@
   const PRICE = /(\$|cop)\s?\d[\d.,]*/i;
   const BLOCK = /queue-it|sala de espera|est[aá]s en la fila|you are now in line|verify you are (a )?human|verifica que eres|captcha|access denied|acceso denegado|just a moment|checking your browser/i;
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  // Storage: Tampermonkey's shared store when available, localStorage otherwise (tests).
-  const kv = {
-    get(k, d) {
-      try {
-        if (typeof GM_getValue === 'function') return GM_getValue(k, d);
-        const v = localStorage.getItem(k);
-        return v == null ? d : JSON.parse(v);
-      } catch { return d; }
-    },
-    set(k, v) {
-      try {
-        if (typeof GM_setValue === 'function') GM_setValue(k, v);
-        else localStorage.setItem(k, JSON.stringify(v));
-      } catch { /* storage unavailable: carry on without persistence */ }
-    },
-  };
-
-  // ---- reading the page ---------------------------------------------------------------------
-  function readRoot() {
-    const sel = CFG.contentSelector;
-    return (sel && document.querySelector(sel)) || document.querySelector('main') || document.body;
-  }
-
-  function readText() {
-    const root = readRoot();
-    return root ? root.innerText || '' : '';
-  }
-
   // Bare numbers/clocks (countdowns, counters) change constantly and mean nothing, so drop them.
-  function normalizeLines(text) {
+  function normalizeLines(text, ignore = [/cookies?\b/i]) {
     const out = [];
     for (const raw of String(text).split(/\n+/)) {
       const line = raw.replace(/\s+/g, ' ').trim();
       if (line.length < 2) continue;
       if (/^[\d\s:.,/\-–—+%]+$/.test(line)) continue;
-      if (IGNORE.some((re) => re.test(line))) continue;
+      if (ignore.some((re) => re.test(line))) continue;
       out.push(line.length > 300 ? line.slice(0, 300) : line);
     }
     return out.slice(0, 600);
   }
 
   // Event pages often embed schema.org JSON-LD with the real availability. Far more reliable than
-  // button text, so surface it as extra lines when present.
-  function jsonLdLines() {
+  // button text, so surface it as extra lines when present. Takes the raw JSON strings.
+  function jsonLdLines(scriptTexts) {
     const out = [];
     const visit = (node) => {
       if (!node || typeof node !== 'object') return;
@@ -109,8 +70,8 @@
         }
       }
     };
-    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
-      try { visit(JSON.parse(s.textContent)); } catch { /* malformed JSON-LD: ignore */ }
+    for (const t of scriptTexts) {
+      try { visit(JSON.parse(t)); } catch { /* malformed JSON-LD: ignore */ }
     }
     return out;
   }
@@ -123,7 +84,6 @@
     return m ? `it looks like a queue or verification page ("${m[0]}")` : null;
   }
 
-  // ---- comparing ----------------------------------------------------------------------------
   function diffLines(oldL, newL) {
     const count = (arr) => {
       const m = new Map();
@@ -150,15 +110,72 @@
     return tags;
   }
 
-  function buildAlert(d) {
+  function buildAlert(d, pageTitle) {
     const tags = classify(d);
     const clip = (l) => (l.length > 140 ? `${l.slice(0, 137)}...` : l);
     const body = [
       ...d.added.slice(0, 8).map((l) => `+ ${clip(l)}`),
       ...d.removed.slice(0, 5).map((l) => `- ${clip(l)}`),
     ].join('\n');
-    return { tags, title: `${tags.join(' / ')}: ${document.title.slice(0, 60)}`, body };
+    return { tags, title: `${tags.join(' / ')}: ${String(pageTitle).slice(0, 60)}`, body };
   }
+
+  // A rough read of the current state, shown so you can sanity-check what was captured.
+  function statusGuess(text) {
+    return SOLD.test(text) ? 'sold out' : AVAIL.test(text) ? 'buy options' : 'unclear';
+  }
+
+  return { normalizeLines, jsonLdLines, looksBlocked, diffLines, classify, buildAlert, statusGuess };
+})();
+
+  // ---- things you may want to edit --------------------------------------------------------
+  const CONTENT_SELECTOR = ''; // e.g. '#tickets' ; empty = the <main> element, else the whole page
+  const IGNORE = [/cookies?\b/i]; // lines matching any of these are never compared
+
+  // ---- internals ----------------------------------------------------------------------------
+  const CFG = Object.assign({
+    contentSelector: CONTENT_SELECTOR,
+    settleMs: 4000,      // wait until the page text has stopped changing for this long
+    maxSettleMs: 25000,  // ...but never longer than this (single-page apps render late)
+    minIntervalSec: 60,  // be polite: never reload more often than this
+    ntfyBase: 'https://ntfy.sh',
+    reload: () => location.reload(),
+  }, globalThis.__TW_CONFIG || {});
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Storage: Tampermonkey's shared store when available, localStorage otherwise (tests).
+  const kv = {
+    get(k, d) {
+      try {
+        if (typeof GM_getValue === 'function') return GM_getValue(k, d);
+        const v = localStorage.getItem(k);
+        return v == null ? d : JSON.parse(v);
+      } catch { return d; }
+    },
+    set(k, v) {
+      try {
+        if (typeof GM_setValue === 'function') GM_setValue(k, v);
+        else localStorage.setItem(k, JSON.stringify(v));
+      } catch { /* storage unavailable: carry on without persistence */ }
+    },
+  };
+
+  // ---- reading the live page ----------------------------------------------------------------
+  function readRoot() {
+    const sel = CFG.contentSelector;
+    return (sel && document.querySelector(sel)) || document.querySelector('main') || document.body;
+  }
+
+  function readText() {
+    const root = readRoot();
+    return root ? root.innerText || '' : '';
+  }
+
+  const pageLines = (text) => [
+    ...TW.normalizeLines(text, IGNORE),
+    ...TW.jsonLdLines([...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent)),
+  ];
 
   // ---- alerting -----------------------------------------------------------------------------
   function ntfy(title, body) {
@@ -216,18 +233,18 @@
   async function check(st) {
     const text = await captureSettled();
     st.lastCheck = Date.now();
-    const blocked = looksBlocked(text);
+    const blocked = TW.looksBlocked(text);
     if (blocked) {
       st.note = `Skipped this check: ${blocked}.`;
     } else {
-      const lines = [...normalizeLines(text), ...jsonLdLines()];
+      const lines = pageLines(text);
       if (!st.snapshot) {
         st.snapshot = lines;
         st.note = `Baseline saved (${lines.length} lines). You'll be alerted when it changes.`;
       } else {
-        const d = diffLines(st.snapshot, lines);
+        const d = TW.diffLines(st.snapshot, lines);
         if (d.added.length || d.removed.length) {
-          const a = buildAlert(d);
+          const a = TW.buildAlert(d, document.title);
           st.note = `CHANGED: ${a.tags.join(' / ')}`;
           st.lastChange = { at: st.lastCheck, tags: a.tags, body: a.body };
           deliver(a.title, a.body);
@@ -278,7 +295,7 @@
       el('h4', {}, 'ticketwatch'), guess, status, go, interval,
       el('button', { className: 'b', textContent: 'Test alert', onclick: () => deliver('ticketwatch test', 'If you can read this, alerts work.') }),
       el('button', { className: 'b', textContent: 'Captured text', onclick: () => {
-        out.textContent = [...normalizeLines(readText()), ...jsonLdLines()].join('\n') || '(nothing captured yet)';
+        out.textContent = pageLines(readText()).join('\n') || '(nothing captured yet)';
         out.hidden = !out.hidden;
       } }),
       topic, out);
@@ -289,7 +306,8 @@
       go.textContent = st.watching ? 'Stop watching' : 'Watch this page';
       pill.textContent = st.watching ? 'watching' : 'watch?';
       const text = readText();
-      guess.textContent = SOLD.test(text) ? 'Page says: SOLD OUT' : AVAIL.test(text) ? 'Page shows buy options' : 'Page status: unclear';
+      const g = TW.statusGuess(text);
+      guess.textContent = g === 'sold out' ? 'Page says: SOLD OUT' : g === 'buy options' ? 'Page shows buy options' : 'Page status: unclear';
       const when = st.lastCheck ? ` Last check ${new Date(st.lastCheck).toLocaleTimeString()}.` : '';
       status.textContent = `${st.note || (st.watching ? 'Starting…' : 'Not watching.')}${when}`;
     };
@@ -324,9 +342,6 @@
     document.documentElement.dataset.twReady = '1';
   }
 
-  if (globalThis.__TW_TEST) {
-    globalThis.__tw = { normalizeLines, diffLines, classify, buildAlert, looksBlocked, jsonLdLines };
-  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', main);
   else main();
 })();

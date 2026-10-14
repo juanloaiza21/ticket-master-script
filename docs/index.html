@@ -29,7 +29,7 @@
           padding: 16px; margin-bottom: 16px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
                   background: var(--bg); color: var(--text); font: inherit; }
   .wide { grid-column: 1 / -1; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
@@ -62,20 +62,25 @@
   .alert ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); }
   tr.fresh td { background: var(--warn-bg); }
   .empty { color: var(--muted); }
+  textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 260px; overflow: auto; font-size: 12px; }
+  pre.diff { margin: 6px 0 0; max-height: 160px; }
+  code { background: var(--gray-bg); padding: 0 4px; border-radius: 4px; }
   ol { margin: 8px 0 8px 20px; padding: 0; } li { margin: 4px 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>ticketwatch</h1>
-  <p class="sub">Find out when Ticketmaster lists new events, announces on-sale times, or changes an event's status for an artist.
+  <p class="sub">Find out when Ticketmaster lists new events, announces on-sale times, or changes an event's status for an artist, or when a ticketing page changes.
     Runs entirely in your browser; your key is only ever sent to Ticketmaster.</p>
 
   <section class="card">
     <h2>Settings</h2>
     <div class="grid">
       <div class="wide">
-        <label for="apikey">Ticketmaster API key (Consumer Key)</label>
+        <label for="apikey">Ticketmaster API key (Consumer Key), needed for artists</label>
         <input id="apikey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your key">
         <p class="hint">Free at <a href="https://developer.ticketmaster.com" target="_blank" rel="noopener">developer.ticketmaster.com</a>.
           Saved in this browser only.</p>
@@ -83,6 +88,15 @@
       <div class="wide">
         <label for="artists">Artist(s), comma-separated</label>
         <input id="artists" type="text" placeholder="Silvana Estrada" spellcheck="false">
+      </div>
+      <div class="wide">
+        <label for="pages">Pages to watch, one URL per line (for sites the API doesn't cover, like Colombia)</label>
+        <textarea id="pages" rows="3" spellcheck="false" placeholder="https://www.ticketmaster.co/event/silvana-estrada"></textarea>
+      </div>
+      <div class="wide">
+        <label for="proxy">Page fetch proxy (needed to read those sites from a web page)</label>
+        <input id="proxy" type="text" spellcheck="false" placeholder="https://ticketwatch-proxy.your-name.workers.dev">
+        <p class="hint">Free and takes about 3 minutes: see the Colombia card below.</p>
       </div>
       <div>
         <label for="country">Country (optional, 2 letters)</label>
@@ -116,19 +130,20 @@
 
   <section class="card" id="colombia">
     <h2>Colombia (and sites the API doesn't cover)</h2>
-    <p>Ticketmaster's API has no Colombian events, but the Colombian sites do. This userscript watches those pages
-      from inside your own browser: it reloads the event page and alerts you when something changes, such as
-      <em>Agotado</em> disappearing, a buy button, a new date, prices or a presale.</p>
+    <p>Ticketmaster's API has no Colombian events, but the Colombian sites do. A web page isn't allowed to read those
+      sites directly, so you run a tiny free "page proxy" once and this page watches them through it.</p>
     <ol>
-      <li>Install <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome, Edge or Firefox).</li>
-      <li><a id="install-userscript" href="./ticketwatch-page.user.js">Install the ticketwatch page watcher</a>, then click <b>Install</b> in Tampermonkey.</li>
-      <li>Open an event page, click the blue <b>watch?</b> button at the bottom right, press <b>Watch this page</b>, and leave the tab open.</li>
+      <li>Make a free <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener noreferrer">Cloudflare</a> account, then
+        <b>Workers &amp; Pages → Create → Hello World → Deploy</b>, then <b>Edit code</b> (menu names may differ slightly).</li>
+      <li><button id="copy-worker" type="button">Copy the proxy code</button> and paste it over everything in the editor, then <b>Deploy</b>.</li>
+      <li>Copy the <code>…workers.dev</code> address into <b>Page fetch proxy</b> above.</li>
+      <li><button id="use-colombia" type="button">Use Silvana's Colombian pages</button>, then press <b>Check now</b>.</li>
     </ol>
-    <p class="hint">Pages to watch:
-      <a href="https://www.ticketmaster.co/event/silvana-estrada" target="_blank" rel="noopener noreferrer">Ticketmaster Colombia</a>,
-      <a href="https://www.ticketmaster.co/event/silvana-estrada-preventa-claro" target="_blank" rel="noopener noreferrer">Bogotá presale page</a>,
-      <a href="https://latiquetera.com/site/comfama/events/view/vendran-suaves-lluvias---silvana-estrada" target="_blank" rel="noopener noreferrer">Medellín on La Tiquetera</a>.
-      Press <b>Captured text</b> in the panel to check it is reading the event info.</p>
+    <p class="hint">The proxy can only fetch ticketmaster.co and latiquetera.com, only for this site, and never sees your API key.
+      Hosting this page somewhere other than <code>juanloaiza21.github.io</code>? Add a Worker variable <code>ALLOWED_ORIGINS</code>.
+      If a page says it is blocked, or "very little text came back", that site isn't giving its content to a proxy: use the
+      <a id="install-userscript" href="./ticketwatch-page.user.js">browser userscript</a> for that page instead (needs Tampermonkey).
+      The proxy code is also at <a href="./fetch-proxy.mjs">fetch-proxy.mjs</a>.</p>
   </section>
 
   <section class="card">
@@ -141,6 +156,7 @@
   </section>
 </main>
 
+<script src="pagewatch-core.js"></script>
 <script type="module">
 import init, * as tw from './pkg/ticketwatch.js';
 
@@ -208,6 +224,10 @@ async function api(path, query, key) {
 
 // ---- state --------------------------------------------------------------------------------
 let stateJson = store.get(STATE_KEY) || '';
+const PAGES_KEY = 'ticketwatch.pages.v1';
+let pagesState = {};
+try { pagesState = JSON.parse(store.get(PAGES_KEY) || '{}') || {}; } catch { pagesState = {}; }
+const savePages = () => store.set(PAGES_KEY, JSON.stringify(pagesState));
 const resolved = new Map(); // artist query -> {id, name, exact, others}, so we look each one up once
 const coverage = new Map(); // country -> upcoming events Ticketmaster lists there overall (null = couldn't tell)
 let watching = false;
@@ -221,6 +241,8 @@ function settings() {
   return {
     key: $('apikey').value.trim(),
     artists,
+    pages: $('pages').value.split('\n').map((l) => l.trim()).filter(Boolean),
+    proxy: $('proxy').value.trim(),
     country: $('country').value.trim(),
     interval: Number($('interval').value),
     notify: $('notify').checked,
@@ -230,7 +252,7 @@ function settings() {
 function saveSettings() {
   const s = settings();
   store.set(SETTINGS_KEY, JSON.stringify({
-    apiKey: s.key, artists: $('artists').value, country: s.country, interval: s.interval, notify: s.notify,
+    apiKey: s.key, artists: $('artists').value, pages: $('pages').value, proxy: s.proxy, country: s.country, interval: s.interval, notify: s.notify,
   }));
 }
 
@@ -239,6 +261,8 @@ function loadSettings() {
   try { s = JSON.parse(store.get(SETTINGS_KEY) || '{}'); } catch { /* ignore */ }
   $('apikey').value = s.apiKey || '';
   $('artists').value = s.artists || '';
+  $('pages').value = s.pages || '';
+  $('proxy').value = s.proxy || '';
   $('country').value = s.country || '';
   if (s.interval) $('interval').value = String(s.interval);
   $('notify').checked = !!s.notify && 'Notification' in window && Notification.permission === 'granted';
@@ -295,6 +319,142 @@ function notify(artistName, alerts) {
   if (!$('notify').checked || !('Notification' in window) || Notification.permission !== 'granted') return;
   const body = alerts.map((a) => `${a.kind === 'new' ? 'New' : 'Changed'}: ${a.event.name}`).join('\n');
   try { new Notification(`${artistName}: ${alerts.length} update(s) on Ticketmaster`, { body }); } catch { /* unsupported */ }
+}
+
+// ---- watching pages (sites the API doesn't cover) -----------------------------------------
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'TEMPLATE', 'IFRAME', 'HEAD', 'OBJECT', 'CANVAS']);
+const BREAK_TAGS = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'BR', 'BUTTON', 'DD', 'DETAILS', 'DIV', 'DL', 'DT',
+  'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN',
+  'NAV', 'OL', 'OPTION', 'P', 'PRE', 'SECTION', 'SUMMARY', 'TABLE', 'TD', 'TH', 'TR', 'UL']);
+
+// Visible text of a parsed (never rendered or executed) HTML document, one block per line.
+function htmlToText(root) {
+  const out = [];
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) { out.push(node.nodeValue); return; }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = node.tagName.toUpperCase();
+    if (SKIP_TAGS.has(tag) || node.hasAttribute('hidden') || node.getAttribute('aria-hidden') === 'true'
+        || /display\s*:\s*none/i.test(node.getAttribute('style') || '')) return;
+    const brk = BREAK_TAGS.has(tag);
+    if (brk) out.push('\n');
+    for (const c of node.childNodes) walk(c);
+    if (brk) out.push('\n');
+  };
+  walk(root);
+  return out.join('');
+}
+
+// Fetch a page's HTML. Other sites can't be read from a web page directly (CORS), so with a proxy
+// configured the request goes through it; without one we try directly and explain the failure.
+async function fetchPage(url, s) {
+  if (!s.proxy) {
+    let resp;
+    try {
+      resp = await fetch(url);
+    } catch {
+      throw new Error("The browser won't let a web page read that site directly (CORS), which is normal for ticketmaster.co and La Tiquetera. "
+        + 'Set up the free page proxy (see the Colombia card) and paste its address into "Page fetch proxy".');
+    }
+    return { html: await resp.text(), status: resp.status, via: 'directly' };
+  }
+  const endpoint = new URL(s.proxy);
+  endpoint.searchParams.set('url', url);
+  let resp;
+  try {
+    resp = await fetch(endpoint);
+  } catch {
+    throw new Error("Couldn't reach your page proxy. Check the address, and that the Worker is deployed.");
+  }
+  let j;
+  try { j = await resp.json(); } catch {
+    throw new Error(`The proxy answered HTTP ${resp.status} but not in the expected format. Is that address the ticketwatch Worker?`);
+  }
+  if (!resp.ok) throw new Error(`The proxy refused: ${j.error || `HTTP ${resp.status}`}`);
+  return { html: String(j.body ?? ''), status: j.status, via: 'through your proxy', truncated: !!j.truncated };
+}
+
+function renderPage(url, rec, extra) {
+  const link = safeLink(url, rec.title) || rec.title;
+  const lines = rec.snapshot || [];
+  const parts = [
+    h('div', { class: 'artist-head' }, h('h2', {}, link),
+      h('span', { class: 'meta' }, `${lines.length} lines · read ${rec.via} · checked ${new Date(rec.lastCheck).toLocaleTimeString()}`)),
+    h('p', { class: extra.skipped ? 'err' : 'note' }, rec.note),
+  ];
+  if (extra.hint) parts.push(h('p', { class: 'note' }, extra.hint));
+  if (rec.lastChange) parts.push(h('p', { class: 'meta' }, `Last change ${new Date(rec.lastChange.at).toLocaleTimeString()}: ${rec.lastChange.tags.join(' / ')}`));
+  parts.push(h('details', {}, h('summary', {}, `What was read (page looks: ${rec.guess}). Open this to check it is the event info.`),
+    h('pre', {}, rec.preview || '(nothing)')));
+  renderArtist(`page:${url}`, parts);
+}
+
+function logPageAlert(title, url, a) {
+  $('alerts-card').hidden = false;
+  $('alerts').prepend(h('div', { class: 'alert' },
+    h('div', {}, h('span', { class: 'tag changed' }, a.tags.join(' / ')), safeLink(url, title) || title),
+    h('pre', { class: 'diff' }, a.body),
+    h('div', { class: 'when' }, `page · ${new Date().toLocaleTimeString()}`)));
+}
+
+function notifyPage(a) {
+  unseen += 1;
+  document.title = `(${unseen}) ticketwatch`;
+  if (!$('notify').checked || !('Notification' in window) || Notification.permission !== 'granted') return;
+  try { new Notification(a.title, { body: a.body.slice(0, 250) }); } catch { /* unsupported */ }
+}
+
+async function checkPage(url, s) {
+  const got = await fetchPage(url, s);
+  const doc = new DOMParser().parseFromString(got.html, 'text/html');
+  const title = (doc.title || '').trim() || url;
+  const text = htmlToText(doc.querySelector('main') || doc.body);
+  const lines = [...TW.normalizeLines(text),
+    ...TW.jsonLdLines([...doc.querySelectorAll('script[type="application/ld+json"]')].map((n) => n.textContent))];
+
+  const prev = pagesState[url];
+  const rec = {
+    title, via: got.via, lastCheck: Date.now(), guess: TW.statusGuess(text),
+    snapshot: prev ? prev.snapshot : null, lastChange: prev ? prev.lastChange : undefined,
+    preview: lines.join('\n').slice(0, 3000),
+  };
+  const extra = { skipped: false, hint: '' };
+
+  let problem = null;
+  if (got.status >= 400) {
+    problem = `the site answered HTTP ${got.status}${got.status === 403 || got.status === 429 ? ' (it may be blocking the proxy)' : ''}`;
+  } else {
+    problem = TW.looksBlocked(text);
+  }
+
+  let alert = null;
+  if (problem) {
+    extra.skipped = true;
+    rec.note = `Skipped this check: ${problem}.`;
+  } else if (!rec.snapshot) {
+    rec.snapshot = lines;
+    rec.note = `First check: saved ${lines.length} lines as the baseline. You'll be alerted when the page changes.`;
+  } else {
+    const d = TW.diffLines(rec.snapshot, lines);
+    if (d.added.length || d.removed.length) {
+      alert = TW.buildAlert(d, title);
+      rec.snapshot = lines;
+      rec.lastChange = { at: rec.lastCheck, tags: alert.tags };
+      rec.note = `CHANGED: ${alert.tags.join(' / ')}`;
+    } else {
+      rec.note = 'No changes.';
+    }
+  }
+  if (!problem && lines.length < 15) {
+    extra.hint = `Very little text came back (${lines.length} lines). The site probably builds the page in the browser, so a server-side copy can't see the event. `
+      + 'Open "What was read" to check, and if it is empty use the browser userscript for this page.';
+  }
+  if (got.truncated) extra.hint = `${extra.hint} The page was very large and was cut off.`.trim();
+
+  pagesState[url] = rec;
+  savePages();
+  renderPage(url, rec, extra);
+  if (alert) { logPageAlert(title, url, alert); notifyPage(alert); }
 }
 
 // ---- one check ----------------------------------------------------------------------------
@@ -379,9 +539,22 @@ async function checkArtist(artist, s) {
 // Returns usable settings, or null after telling the user what is missing.
 function validate() {
   const s = settings();
-  if (!s.key) { setStatus('Enter your API key first.'); return null; }
-  if (!s.artists.length) { setStatus('Enter at least one artist.'); return null; }
+  if (!s.artists.length && !s.pages.length) { setStatus('Enter an artist or a page to watch.'); return null; }
+  if (s.artists.length && !s.key) { setStatus('Enter your API key first (it is needed for artists).'); return null; }
   try { s.country = tw.normalize_country(s.country); } catch (e) { setStatus(String(e.message || e)); return null; }
+  for (const u of s.pages) {
+    let ok = false;
+    try { ok = /^https?:$/.test(new URL(u).protocol); } catch { /* not a URL */ }
+    if (!ok) { setStatus(`Not a valid page URL: ${u}`); return null; }
+  }
+  if (s.proxy) {
+    let ok = false;
+    try {
+      const p = new URL(s.proxy);
+      ok = p.protocol === 'https:' || (p.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(p.hostname));
+    } catch { /* not a URL */ }
+    if (!ok) { setStatus('The page fetch proxy must be an https:// address (the one Cloudflare gave you).'); return null; }
+  }
   return s;
 }
 
@@ -395,13 +568,17 @@ async function runCheck() {
   setStatus('Checking…');
   let fatal = false;
   let failed = 0;
-  for (const artist of s.artists) {
+  const jobs = [
+    ...s.artists.map((a) => ({ key: a, label: a, run: () => checkArtist(a, s) })),
+    ...s.pages.map((u) => ({ key: `page:${u}`, label: u, run: () => checkPage(u, s) })),
+  ];
+  for (const job of jobs) {
     try {
-      await checkArtist(artist, s);
+      await job.run();
     } catch (e) {
       failed++;
       if (e instanceof AuthError) fatal = true;
-      renderArtist(artist, [h('div', { class: 'artist-head' }, h('h2', {}, artist)),
+      renderArtist(job.key, [h('div', { class: 'artist-head' }, h('h2', {}, job.label)),
         h('p', { class: 'err' }, String(e.message || e))]);
       if (fatal) break;
     }
@@ -445,12 +622,32 @@ $('notify').onchange = async () => {
   }
   saveSettings();
 };
-$('reset').onclick = () => { stateJson = ''; store.del(STATE_KEY); resolved.clear(); coverage.clear(); setStatus('Cleared. The next check starts a fresh baseline.'); };
+$('reset').onclick = () => { stateJson = ''; store.del(STATE_KEY); pagesState = {}; store.del(PAGES_KEY); resolved.clear(); coverage.clear(); setStatus('Cleared. The next check starts a fresh baseline.'); };
 $('wipe').onclick = () => {
-  stopWatching(); stateJson = ''; resolved.clear(); coverage.clear();
+  stopWatching(); stateJson = ''; pagesState = {}; store.del(PAGES_KEY); resolved.clear(); coverage.clear();
   store.del(STATE_KEY); store.del(SETTINGS_KEY);
   loadSettings(); $('artists-out').replaceChildren(); $('alerts').replaceChildren(); $('alerts-card').hidden = true;
   setStatus('Saved key and data cleared.');
+};
+const SILVANA_CO = [
+  'https://www.ticketmaster.co/event/silvana-estrada',
+  'https://www.ticketmaster.co/event/silvana-estrada-preventa-claro',
+  'https://latiquetera.com/site/comfama/events/view/vendran-suaves-lluvias---silvana-estrada',
+];
+$('use-colombia').onclick = () => {
+  const have = new Set(settings().pages);
+  $('pages').value = [...have, ...SILVANA_CO.filter((u) => !have.has(u))].join('\n');
+  saveSettings();
+  setStatus('Added the Colombian pages. Add your proxy address, then press Check now.');
+};
+$('copy-worker').onclick = async () => {
+  try {
+    const code = await (await fetch('./fetch-proxy.mjs')).text();
+    await navigator.clipboard.writeText(code);
+    setStatus('Proxy code copied. Paste it into the Cloudflare editor.');
+  } catch {
+    setStatus("Couldn't copy automatically. Open fetch-proxy.mjs (link in the card) and copy it by hand.");
+  }
 };
 window.addEventListener('focus', () => { unseen = 0; document.title = 'ticketwatch'; });
 $('version').textContent = `Page last updated: ${document.lastModified}. If this looks old, hard-refresh (Ctrl+Shift+R).`;
